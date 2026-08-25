@@ -1,10 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
   HISTORY_SWIPE_THRESHOLD_PX,
+  WHEEL_PIXELS_PER_TICK,
+  fingerDeltaToWheelDeltaY,
   isScrolledToLatest,
   scrollElementToLatest,
   shouldEnterHistory,
-  shouldExitHistory
+  shouldExitHistory,
+  takeWheelTicks
 } from "../../src/frontend/history-gesture.js";
 
 describe("shouldEnterHistory", () => {
@@ -74,6 +77,37 @@ describe("shouldExitHistory", () => {
         totalMovePx: 80
       })
     ).toBe(false);
+  });
+});
+
+describe("SGR wheel encoding", () => {
+  test("encodes signed ticks as SGR wheel reports", async () => {
+    const { encodeSgrWheel, cellFromPoint } = await import("../../src/frontend/terminal-gestures.js");
+    expect(encodeSgrWheel(2, 4, 8)).toBe("\x1b[<65;4;8M\x1b[<65;4;8M");
+    expect(encodeSgrWheel(-1, 1, 1)).toBe("\x1b[<64;1;1M");
+    expect(encodeSgrWheel(0, 1, 1)).toBe("");
+    expect(
+      cellFromPoint(50, 25, { left: 0, top: 0, width: 100, height: 100 }, 10, 10)
+    ).toEqual({ col: 6, row: 3 });
+  });
+});
+
+describe("wheel synthesis from a finger pan", () => {
+  test("maps finger-up to wheel-up content motion (positive deltaY)", () => {
+    expect(fingerDeltaToWheelDeltaY(-40)).toBe(40);
+    expect(fingerDeltaToWheelDeltaY(40)).toBe(-40);
+  });
+
+  test("emits whole ticks and keeps the leftover pixels", () => {
+    expect(takeWheelTicks(WHEEL_PIXELS_PER_TICK * 2 + 5)).toEqual({
+      ticks: 2,
+      remainder: 5
+    });
+    expect(takeWheelTicks(-WHEEL_PIXELS_PER_TICK - 3)).toEqual({
+      ticks: -1,
+      remainder: -3
+    });
+    expect(takeWheelTicks(10)).toEqual({ ticks: 0, remainder: 10 });
   });
 });
 

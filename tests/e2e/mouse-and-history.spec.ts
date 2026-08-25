@@ -64,9 +64,9 @@ test.describe("mouse toggle and in-place history", () => {
     await expect(page.locator(".terminal-host textarea")).toHaveCount(1);
     await expect
       .poll(async () =>
-        page.locator(".terminal-host textarea").evaluate((el) => getComputedStyle(el).touchAction)
+        page.locator(".terminal-host").evaluate((el) => getComputedStyle(el).touchAction)
       )
-      .toBe("pan-y");
+      .toBe("none");
 
     await swipeTerminal(page, "up");
 
@@ -99,17 +99,23 @@ test.describe("mouse toggle and in-place history", () => {
     await expect(toggle).toHaveText("Mouse");
     await expect
       .poll(async () =>
-        page.locator(".terminal-host textarea").evaluate((el) => getComputedStyle(el).touchAction)
+        page.locator(".terminal-host").evaluate((el) => getComputedStyle(el).touchAction)
       )
       .toBe("none");
 
     const capturesBefore = server.tmux.calls.filter((call) => call.startsWith("capturePane:")).length;
+    const writesBefore = server.ptyFactory.latestProcess().writes.length;
     await swipeTerminal(page, "up");
     await expect(page.getByTestId("history-surface")).toHaveCount(0);
     await expect(page.locator(".scrollback-card")).toHaveCount(0);
     expect(server.tmux.calls.filter((call) => call.startsWith("capturePane:")).length).toBe(
       capturesBefore
     );
+    await expect
+      .poll(() =>
+        server.ptyFactory.latestProcess().writes.slice(writesBefore).join("").includes("\x1b[<65;")
+      )
+      .toBe(true);
   });
 });
 
