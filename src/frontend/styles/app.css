@@ -505,7 +505,7 @@ input {
   overscroll-behavior: contain;
   touch-action: pan-y;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.78rem;
   line-height: 1.35;
