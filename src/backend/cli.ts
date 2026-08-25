@@ -6,14 +6,13 @@ import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { AuthService } from "./auth/auth-service.js";
+import { AuthService, resolveAuthSecrets } from "./auth/auth-service.js";
 import { CloudflaredManager } from "./cloudflared/manager.js";
 import type { CliArgs, RuntimeConfig } from "./config.js";
 import { NodePtyFactory } from "./pty/node-pty-adapter.js";
 import { createTmuxMobileServer } from "./server.js";
 import { TmuxCliExecutor } from "./tmux/cli-executor.js";
 import { createLogger } from "./util/file-logger.js";
-import { randomToken } from "./util/random.js";
 
 const parseCliArgs = async (): Promise<CliArgs> => {
   const argv = await yargs(hideBin(process.argv))
@@ -27,6 +26,14 @@ const parseCliArgs = async (): Promise<CliArgs> => {
     .option("password", {
       type: "string",
       describe: "Password for authentication (auto-generated when protection is enabled)"
+    })
+    .option("token", {
+      type: "string",
+      describe: "Auth token embedded in the URL (auto-generated if omitted)"
+    })
+    .option("url-file", {
+      type: "string",
+      describe: "Write the launch URL and password to this file"
     })
     .option("require-password", {
       type: "boolean",
@@ -59,11 +66,13 @@ const parseCliArgs = async (): Promise<CliArgs> => {
   return {
     port: argv.port,
     password: argv.password,
+    token: argv.token,
     requirePassword: argv.requirePassword,
     tunnel: argv.tunnel,
     session: argv.session,
     scrollback: argv.scrollback,
-    debugLog: argv.debugLog
+    debugLog: argv.debugLog,
+    urlFile: argv.urlFile
   };
 };
 
@@ -103,10 +112,30 @@ const printConnectionInfo = (
   console.log("");
 };
 
+const writeUrlFile = (
+  filePath: string,
+  localUrl: string,
+  tunnelUrl: string | undefined,
+  token: string,
+  password?: string
+): void => {
+  const lines = [
+    `local=${buildLaunchUrl(localUrl, token)}`,
+    tunnelUrl ? `tunnel=${buildLaunchUrl(tunnelUrl, token)}` : undefined,
+    password ? `password=${password}` : undefined
+  ].filter((line): line is string => Boolean(line));
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${lines.join("\n")}\n`, { mode: 0o600 });
+};
+
 const main = async (): Promise<void> => {
   const args = await parseCliArgs();
-  const effectivePassword = args.requirePassword ? args.password ?? randomToken(16) : undefined;
-  const authService = new AuthService(effectivePassword);
+  const { password: effectivePassword, token } = resolveAuthSecrets({
+    password: args.password,
+    token: args.token,
+    requirePassword: args.requirePassword
+  });
+  const authService = new AuthService(effectivePassword, token);
   const debugLogPath = args.debugLog ?? process.env.TMUX_MOBILE_DEBUG_LOG;
   const logger = createLogger(debugLogPath);
   const cliDir = path.dirname(fileURLToPath(import.meta.url));
@@ -158,6 +187,15 @@ const main = async (): Promise<void> => {
   }
 
   printConnectionInfo(`http://localhost:${args.port}`, tunnelUrl, authService.token, effectivePassword, isDevMode);
+  if (args.urlFile) {
+    writeUrlFile(
+      args.urlFile,
+      isDevMode ? "http://localhost:5173" : `http://localhost:${args.port}`,
+      tunnelUrl,
+      authService.token,
+      effectivePassword
+    );
+  }
 
   let shutdownPromise: Promise<void> | null = null;
   const shutdown = async (): Promise<void> => {
