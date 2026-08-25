@@ -6,9 +6,9 @@ import { reconnectDelayMs, shouldReconnect, socketsNeedReconnect } from "./recon
 import {
   isScrolledToLatest,
   scrollElementToLatest,
-  shouldEnterHistory,
   shouldExitHistory
 } from "./history-gesture";
+import { attachTerminalGestures, cellFromPoint, encodeSgrWheel } from "./terminal-gestures";
 import {
   readMousePreference,
   resolveMouseEnabled,
@@ -147,7 +147,6 @@ export const App = () => {
   const scrollbackVisibleRef = useRef(false);
   const activePaneRef = useRef<TmuxPaneState | undefined>(undefined);
   const mousePreferenceAppliedRef = useRef(false);
-  const terminalSwipeCleanupRef = useRef<(() => void) | null>(null);
 
   const [modifiers, setModifiers] = useState<Record<ModifierKey, ModifierMode>>({
     ctrl: "off",
@@ -759,7 +758,6 @@ export const App = () => {
       unmountedRef.current = true;
       socketGenerationRef.current += 1;
       clearReconnectTimer();
-      terminalSwipeCleanupRef.current?.();
       controlSocketRef.current?.close();
       terminalSocketRef.current?.close();
     };
@@ -814,6 +812,27 @@ export const App = () => {
   useEffect(() => {
     activePaneRef.current = activePane;
   }, [activePane]);
+
+  useEffect(() => {
+    const host = terminalContainerRef.current;
+    if (!host) {
+      return;
+    }
+    return attachTerminalGestures(host, {
+      isMouseEnabled: () => mouseEnabledRef.current,
+      isBlocked: () => historyVisibleRef.current || scrollbackVisibleRef.current,
+      onEnterHistory: () => requestHistory(),
+      onMouseWheel: (clientX, clientY, ticks) => {
+        const terminal = terminalRef.current;
+        const rect = terminal?.element?.getBoundingClientRect();
+        const cell =
+          terminal && rect
+            ? cellFromPoint(clientX, clientY, rect, terminal.cols, terminal.rows)
+            : { col: 1, row: 1 };
+        sendTerminal(encodeSgrWheel(ticks, cell.col, cell.row), false);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!historyVisible || !historyPreRef.current) {
@@ -908,42 +927,6 @@ export const App = () => {
       return;
     }
     focusTerminal();
-  };
-
-  const onTerminalPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (!event.isPrimary) {
-      return;
-    }
-    if (mouseEnabledRef.current || historyVisibleRef.current || scrollbackVisibleRef.current) {
-      return;
-    }
-
-    terminalSwipeCleanupRef.current?.();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const onMove = (moveEvent: PointerEvent): void => {
-      if (
-        shouldEnterHistory({
-          mouseEnabled: mouseEnabledRef.current,
-          deltaX: moveEvent.clientX - startX,
-          deltaY: moveEvent.clientY - startY
-        })
-      ) {
-        moveEvent.preventDefault();
-        requestHistory();
-        cleanup();
-      }
-    };
-    const cleanup = (): void => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", cleanup);
-      window.removeEventListener("pointercancel", cleanup);
-      terminalSwipeCleanupRef.current = null;
-    };
-    terminalSwipeCleanupRef.current = cleanup;
-    window.addEventListener("pointermove", onMove, { passive: false });
-    window.addEventListener("pointerup", cleanup);
-    window.addEventListener("pointercancel", cleanup);
   };
 
   const onHistoryPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -1057,7 +1040,6 @@ export const App = () => {
           ref={terminalContainerRef}
           data-testid="terminal-host"
           onContextMenu={(event) => event.preventDefault()}
-          onPointerDownCapture={onTerminalPointerDown}
         />
         {historyVisible && (
           <div

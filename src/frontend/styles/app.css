@@ -464,22 +464,15 @@ input {
   height: 100% !important;
 }
 
-.terminal-host.mouse-off,
-.terminal-host.mouse-off .xterm,
-.terminal-host.mouse-off .xterm-viewport,
-.terminal-host.mouse-off textarea {
-  touch-action: pan-y;
-}
-
-.terminal-host.mouse-off .xterm-viewport {
-  overflow: hidden;
-}
-
-.terminal-host.mouse-on,
-.terminal-host.mouse-on .xterm,
-.terminal-host.mouse-on .xterm-viewport,
-.terminal-host.mouse-on textarea {
+.terminal-host,
+.terminal-host .xterm,
+.terminal-host .xterm-viewport,
+.terminal-host textarea {
   touch-action: none;
+}
+
+.terminal-host .xterm-viewport {
+  overflow: hidden;
 }
 
 .top-btn.on {

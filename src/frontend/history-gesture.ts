@@ -1,5 +1,19 @@
 export const HISTORY_SWIPE_THRESHOLD_PX = 48;
 export const HISTORY_TAP_SLOP_PX = 12;
+export const WHEEL_PIXELS_PER_TICK = 28;
+
+export const fingerDeltaToWheelDeltaY = (fingerDeltaY: number): number => -fingerDeltaY;
+
+export const takeWheelTicks = (
+  accumulatedWheelDeltaY: number,
+  pixelsPerTick: number = WHEEL_PIXELS_PER_TICK
+): { ticks: number; remainder: number } => {
+  const ticks = Math.trunc(accumulatedWheelDeltaY / pixelsPerTick);
+  return {
+    ticks,
+    remainder: accumulatedWheelDeltaY - ticks * pixelsPerTick
+  };
+};
 
 export const shouldEnterHistory = (input: {
   mouseEnabled: boolean;
