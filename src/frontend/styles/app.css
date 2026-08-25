@@ -557,7 +557,7 @@ button.danger {
 
 .compose-bar {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 0.5rem;
   padding: 0.5rem;
   background: var(--bg-topbar);
