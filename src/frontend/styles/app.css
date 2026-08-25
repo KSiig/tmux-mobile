@@ -439,6 +439,7 @@ input {
 }
 
 .terminal-wrap {
+  position: relative;
   min-height: 0;
   padding: 0.3rem;
 }
@@ -461,6 +462,56 @@ input {
 .terminal-host .xterm-viewport,
 .terminal-host .xterm-screen {
   height: 100% !important;
+}
+
+.terminal-host.mouse-off,
+.terminal-host.mouse-off .xterm,
+.terminal-host.mouse-off .xterm-viewport,
+.terminal-host.mouse-off textarea {
+  touch-action: pan-y;
+}
+
+.terminal-host.mouse-off .xterm-viewport {
+  overflow: hidden;
+}
+
+.terminal-host.mouse-on,
+.terminal-host.mouse-on .xterm,
+.terminal-host.mouse-on .xterm-viewport,
+.terminal-host.mouse-on textarea {
+  touch-action: none;
+}
+
+.top-btn.on {
+  border-color: var(--border-active);
+  background: var(--accent-glow);
+}
+
+.history-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: var(--scrollback-bg);
+}
+
+.history-text {
+  margin: 0;
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-primary);
+  background: var(--scrollback-bg);
+  padding: 0.55rem;
 }
 
 .toolbar {

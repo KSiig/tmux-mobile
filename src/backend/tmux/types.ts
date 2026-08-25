@@ -23,6 +23,8 @@ export interface TmuxGateway {
   zoomPane(paneId: string): Promise<void>;
   isPaneZoomed(paneId: string): Promise<boolean>;
   capturePane(paneId: string, lines: number): Promise<string>;
+  getMouse(session: string): Promise<boolean>;
+  setMouse(session: string, enabled: boolean): Promise<void>;
 }
 
 export const buildSnapshot = async (

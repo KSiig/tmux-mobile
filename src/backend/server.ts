@@ -219,6 +219,12 @@ export const createTmuxMobileServer = (
     context.attachedSession = mobileSession;
     runtime.attachToSession(mobileSession);
     sendJson(context.socket, { type: "attached", session: mobileSession });
+    try {
+      const enabled = await deps.tmux.getMouse(mobileSession);
+      sendJson(context.socket, { type: "mouse", enabled });
+    } catch (error) {
+      logger.error("failed to read mouse option", mobileSession, error);
+    }
   };
 
   const ensureAttachedSession = async (
@@ -315,8 +321,17 @@ export const createTmuxMobileServer = (
           type: "scrollback",
           paneId: message.paneId,
           lines,
-          text: output
+          text: output,
+          ...(message.intent ? { intent: message.intent } : {})
         });
+        return;
+      }
+      case "set_mouse": {
+        if (!attachedSession) {
+          throw new Error("no attached session");
+        }
+        await deps.tmux.setMouse(attachedSession, message.enabled);
+        sendJson(context.socket, { type: "mouse", enabled: message.enabled });
         return;
       }
       case "send_compose":

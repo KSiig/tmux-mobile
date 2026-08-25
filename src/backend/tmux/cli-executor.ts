@@ -161,4 +161,13 @@ export class TmuxCliExecutor implements TmuxGateway {
   public async capturePane(paneId: string, lines: number): Promise<string> {
     return this.runTmux(["capture-pane", "-t", paneId, "-p", "-S", `-${lines}`]);
   }
+
+  public async getMouse(session: string): Promise<boolean> {
+    const output = await this.runTmux(["display-message", "-p", "-t", `${session}:`, "#{mouse}"]);
+    return output === "1";
+  }
+
+  public async setMouse(session: string, enabled: boolean): Promise<void> {
+    await this.runTmux(["set-option", "-t", session, "mouse", enabled ? "on" : "off"]);
+  }
 }

@@ -3,6 +3,17 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { themes } from "./themes";
 import { reconnectDelayMs, shouldReconnect, socketsNeedReconnect } from "./reconnect";
+import {
+  isScrolledToLatest,
+  scrollElementToLatest,
+  shouldEnterHistory,
+  shouldExitHistory
+} from "./history-gesture";
+import {
+  readMousePreference,
+  resolveMouseEnabled,
+  writeMousePreference
+} from "./mouse-preference";
 import type {
   ControlServerMessage,
   TmuxPaneState,
@@ -126,6 +137,17 @@ export const App = () => {
   const [scrollbackVisible, setScrollbackVisible] = useState(false);
   const [scrollbackText, setScrollbackText] = useState("");
   const [scrollbackLines, setScrollbackLines] = useState(1000);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [historyText, setHistoryText] = useState("");
+  const [mouseEnabled, setMouseEnabled] = useState(false);
+  const historyPreRef = useRef<HTMLPreElement | null>(null);
+  const historyGestureRef = useRef<{ x: number; y: number } | null>(null);
+  const mouseEnabledRef = useRef(false);
+  const historyVisibleRef = useRef(false);
+  const scrollbackVisibleRef = useRef(false);
+  const activePaneRef = useRef<TmuxPaneState | undefined>(undefined);
+  const mousePreferenceAppliedRef = useRef(false);
+  const terminalSwipeCleanupRef = useRef<(() => void) | null>(null);
 
   const [modifiers, setModifiers] = useState<Record<ModifierKey, ModifierMode>>({
     ctrl: "off",
@@ -288,12 +310,38 @@ export const App = () => {
     });
   };
 
-  const requestScrollback = (lines: number): void => {
+  const requestScrollback = (lines: number, intent: "overlay" | "history" = "overlay"): void => {
     if (!activePane) {
       return;
     }
     setScrollbackLines(lines);
-    sendControl({ type: "capture_scrollback", paneId: activePane.id, lines });
+    sendControl({ type: "capture_scrollback", paneId: activePane.id, lines, intent });
+  };
+
+  const requestHistory = (): void => {
+    const pane = activePaneRef.current;
+    if (!pane) {
+      return;
+    }
+    sendControl({
+      type: "capture_scrollback",
+      paneId: pane.id,
+      lines: serverConfig?.scrollbackLines ?? 1000,
+      intent: "history"
+    });
+  };
+
+  const toggleMouse = (): void => {
+    if (!attachedSession) {
+      return;
+    }
+    const next = !mouseEnabled;
+    writeMousePreference(localStorage, next);
+    setMouseEnabled(next);
+    if (next) {
+      setHistoryVisible(false);
+    }
+    sendControl({ type: "set_mouse", enabled: next });
   };
 
   const formatPasswordError = (reason: string): string => {
@@ -424,6 +472,7 @@ export const App = () => {
           return;
         case "attached":
           debugLog("control_socket.attached", { session: message.session });
+          mousePreferenceAppliedRef.current = false;
           setAttachedSession(message.session);
           setSessionChoices(null);
           setDrawerOpen(false);
@@ -466,10 +515,37 @@ export const App = () => {
           debugLog("control_socket.scrollback", {
             paneId: message.paneId,
             lines: message.lines,
-            bytes: message.text.length
+            bytes: message.text.length,
+            intent: message.intent
           });
+          if (message.intent === "history") {
+            setHistoryText(message.text);
+            setHistoryVisible(true);
+            setScrollbackVisible(false);
+            return;
+          }
           setScrollbackText(message.text);
           setScrollbackVisible(true);
+          return;
+        case "mouse":
+          debugLog("control_socket.mouse", { enabled: message.enabled });
+          if (!mousePreferenceAppliedRef.current) {
+            mousePreferenceAppliedRef.current = true;
+            const stored = readMousePreference(localStorage);
+            const desired = resolveMouseEnabled(stored, message.enabled);
+            setMouseEnabled(desired);
+            if (desired !== message.enabled) {
+              sendControl({ type: "set_mouse", enabled: desired });
+            }
+            if (desired) {
+              setHistoryVisible(false);
+            }
+            return;
+          }
+          setMouseEnabled(message.enabled);
+          if (message.enabled) {
+            setHistoryVisible(false);
+          }
           return;
         case "error":
           debugLog("control_socket.error", { message: message.message });
@@ -683,6 +759,7 @@ export const App = () => {
       unmountedRef.current = true;
       socketGenerationRef.current += 1;
       clearReconnectTimer();
+      terminalSwipeCleanupRef.current?.();
       controlSocketRef.current?.close();
       terminalSocketRef.current?.close();
     };
@@ -721,6 +798,29 @@ export const App = () => {
   useEffect(() => {
     localStorage.setItem("tmux-mobile-sticky-zoom", stickyZoom ? "true" : "false");
   }, [stickyZoom]);
+
+  useEffect(() => {
+    mouseEnabledRef.current = mouseEnabled;
+  }, [mouseEnabled]);
+
+  useEffect(() => {
+    historyVisibleRef.current = historyVisible;
+  }, [historyVisible]);
+
+  useEffect(() => {
+    scrollbackVisibleRef.current = scrollbackVisible;
+  }, [scrollbackVisible]);
+
+  useEffect(() => {
+    activePaneRef.current = activePane;
+  }, [activePane]);
+
+  useEffect(() => {
+    if (!historyVisible || !historyPreRef.current) {
+      return;
+    }
+    scrollElementToLatest(historyPreRef.current);
+  }, [historyVisible, historyText]);
 
   useEffect(() => {
     if (!debugMode) {
@@ -810,6 +910,77 @@ export const App = () => {
     focusTerminal();
   };
 
+  const onTerminalPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (!event.isPrimary) {
+      return;
+    }
+    if (mouseEnabledRef.current || historyVisibleRef.current || scrollbackVisibleRef.current) {
+      return;
+    }
+
+    terminalSwipeCleanupRef.current?.();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const onMove = (moveEvent: PointerEvent): void => {
+      if (
+        shouldEnterHistory({
+          mouseEnabled: mouseEnabledRef.current,
+          deltaX: moveEvent.clientX - startX,
+          deltaY: moveEvent.clientY - startY
+        })
+      ) {
+        moveEvent.preventDefault();
+        requestHistory();
+        cleanup();
+      }
+    };
+    const cleanup = (): void => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", cleanup);
+      window.removeEventListener("pointercancel", cleanup);
+      terminalSwipeCleanupRef.current = null;
+    };
+    terminalSwipeCleanupRef.current = cleanup;
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", cleanup);
+    window.addEventListener("pointercancel", cleanup);
+  };
+
+  const onHistoryPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (!event.isPrimary) {
+      return;
+    }
+    historyGestureRef.current = { x: event.clientX, y: event.clientY };
+  };
+
+  const onHistoryPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const start = historyGestureRef.current;
+    historyGestureRef.current = null;
+    if (!start) {
+      return;
+    }
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    const atLatest = historyPreRef.current ? isScrolledToLatest(historyPreRef.current) : true;
+    if (
+      shouldExitHistory({
+        atLatest,
+        deltaX,
+        deltaY,
+        totalMovePx: Math.hypot(deltaX, deltaY)
+      })
+    ) {
+      setHistoryVisible(false);
+    }
+  };
+
+  const bindHistoryPre = (element: HTMLPreElement | null): void => {
+    historyPreRef.current = element;
+    if (element) {
+      scrollElementToLatest(element);
+    }
+  };
+
   const selectWindow = (windowState: TmuxWindowState): void => {
     if (!activeSession) {
       return;
@@ -855,6 +1026,16 @@ export const App = () => {
           <button className="top-btn" onClick={() => requestScrollback(serverConfig?.scrollbackLines ?? 1000)}>
             Scroll
           </button>
+          <button
+            className={`top-btn${mouseEnabled ? " on" : ""}`}
+            data-testid="mouse-toggle"
+            aria-pressed={mouseEnabled}
+            aria-label={mouseEnabled ? "Mouse on" : "Mouse off"}
+            onClick={toggleMouse}
+            disabled={!attachedSession}
+          >
+            {mouseEnabled ? "Mouse" : "Mouse off"}
+          </button>
           <button className="top-btn" onClick={() => setComposeEnabled((value) => !value)}>
             {composeEnabled ? "Compose On" : "Compose Off"}
           </button>
@@ -872,11 +1053,27 @@ export const App = () => {
 
       <main className="terminal-wrap">
         <div
-          className="terminal-host"
+          className={`terminal-host${mouseEnabled ? " mouse-on" : " mouse-off"}`}
           ref={terminalContainerRef}
           data-testid="terminal-host"
           onContextMenu={(event) => event.preventDefault()}
+          onPointerDownCapture={onTerminalPointerDown}
         />
+        {historyVisible && (
+          <div
+            className="history-surface"
+            data-testid="history-surface"
+            onPointerDown={onHistoryPointerDown}
+            onPointerUp={onHistoryPointerUp}
+            onPointerCancel={() => {
+              historyGestureRef.current = null;
+            }}
+          >
+            <pre className="history-text" data-testid="history-text" ref={bindHistoryPre}>
+              {historyText}
+            </pre>
+          </div>
+        )}
       </main>
 
       <section className="toolbar" onMouseUp={onToolbarMouseUp}>

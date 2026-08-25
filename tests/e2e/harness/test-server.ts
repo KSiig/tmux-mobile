@@ -12,6 +12,7 @@ export interface E2EServerOptions {
   failSwitchClient?: boolean;
   defaultSession?: string;
   password?: string;
+  mouseEnabled?: boolean;
 }
 
 export interface StartedE2EServer {
@@ -50,7 +51,8 @@ export const startE2EServer = async (
   const authService = new AuthService(options.password, token);
   const tmux = new FakeTmuxGateway(options.sessions, {
     attachedSession: options.attachedSession,
-    failSwitchClient: options.failSwitchClient
+    failSwitchClient: options.failSwitchClient,
+    mouseEnabled: options.mouseEnabled
   });
   const ptyFactory = new FakePtyFactory();
 
