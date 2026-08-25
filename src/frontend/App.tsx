@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { themes } from "./themes";
+import { reconnectDelayMs, shouldReconnect, socketsNeedReconnect } from "./reconnect";
 import type {
   ControlServerMessage,
   TmuxPaneState,
@@ -28,6 +29,10 @@ declare global {
       payload?: unknown;
     }>;
     __tmuxMobileDebugState?: unknown;
+    __tmuxMobileDebugSockets?: {
+      control?: WebSocket;
+      terminal?: WebSocket;
+    };
   }
 }
 
@@ -87,6 +92,16 @@ export const App = () => {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const controlSocketRef = useRef<WebSocket | null>(null);
   const terminalSocketRef = useRef<WebSocket | null>(null);
+  const passwordRef = useRef("");
+  const needsPasswordRef = useRef(false);
+  const unmountedRef = useRef(false);
+  const hadConnectedRef = useRef(false);
+  const socketGenerationRef = useRef(0);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const scheduleReconnectRef = useRef<
+    (options: { immediate?: boolean; closeCode?: number; generation: number }) => void
+  >(() => undefined);
 
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -95,6 +110,12 @@ export const App = () => {
   const [needsPasswordInput, setNeedsPasswordInput] = useState(false);
   const [passwordErrorMessage, setPasswordErrorMessage] = useState("");
   const [authReady, setAuthReady] = useState(false);
+  const [connectionPhase, setConnectionPhase] = useState<"connecting" | "connected" | "reconnecting">(
+    "connecting"
+  );
+
+  passwordRef.current = password;
+  needsPasswordRef.current = needsPasswordInput;
 
   const [snapshot, setSnapshot] = useState<TmuxStateSnapshot>({ sessions: [], capturedAt: "" });
   const [attachedSession, setAttachedSession] = useState<string>("");
@@ -283,21 +304,38 @@ export const App = () => {
     return reason;
   };
 
-  const openTerminalSocket = (passwordValue: string, clientId: string): void => {
+  const clearReconnectTimer = (): void => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  };
+
+  const markConnected = (): void => {
+    reconnectAttemptRef.current = 0;
+    setConnectionPhase("connected");
+    setStatusMessage("terminal connected");
+  };
+
+  const openTerminalSocket = (passwordValue: string, clientId: string, generation: number): void => {
     debugLog("terminal_socket.open.begin", { hasPassword: Boolean(passwordValue) });
     terminalSocketRef.current?.close();
 
     const socket = new WebSocket(`${wsOrigin}/ws/terminal`);
     socket.onopen = () => {
       debugLog("terminal_socket.onopen");
+      if (hadConnectedRef.current) {
+        terminalRef.current?.reset();
+      }
       socket.send(
         JSON.stringify({ type: "auth", token, password: passwordValue || undefined, clientId })
       );
-      setStatusMessage("terminal connected");
       if (fitAddonRef.current && terminalRef.current) {
         fitAddonRef.current.fit();
       }
       sendTerminalResize();
+      hadConnectedRef.current = true;
+      markConnected();
     };
 
     socket.onmessage = (event) => {
@@ -314,6 +352,7 @@ export const App = () => {
         setErrorMessage("terminal authentication failed");
       }
       setStatusMessage("terminal disconnected");
+      scheduleReconnectRef.current({ closeCode: event.code, generation });
     };
     socket.onerror = () => {
       debugLog("terminal_socket.onerror");
@@ -321,11 +360,20 @@ export const App = () => {
     };
 
     terminalSocketRef.current = socket;
+    if (debugMode) {
+      window.__tmuxMobileDebugSockets = {
+        ...(window.__tmuxMobileDebugSockets ?? {}),
+        terminal: socket
+      };
+    }
   };
 
   const openControlSocket = (passwordValue: string): void => {
     debugLog("control_socket.open.begin", { hasPassword: Boolean(passwordValue) });
+    clearReconnectTimer();
+    const generation = ++socketGenerationRef.current;
     controlSocketRef.current?.close();
+    terminalSocketRef.current?.close();
 
     const socket = new WebSocket(`${wsOrigin}/ws/control`);
 
@@ -358,7 +406,7 @@ export const App = () => {
           } else {
             localStorage.removeItem("tmux-mobile-password");
           }
-          openTerminalSocket(passwordValue, message.clientId);
+          openTerminalSocket(passwordValue, message.clientId, generation);
           return;
         case "auth_error":
           debugLog("control_socket.auth_error", { reason: message.reason });
@@ -432,13 +480,75 @@ export const App = () => {
       }
     };
 
-    socket.onclose = () => {
-      debugLog("control_socket.onclose");
+    socket.onclose = (event) => {
+      debugLog("control_socket.onclose", { code: event.code, reason: event.reason });
       setAuthReady(false);
+      scheduleReconnectRef.current({ closeCode: event.code, generation });
     };
 
     controlSocketRef.current = socket;
+    if (debugMode) {
+      window.__tmuxMobileDebugSockets = {
+        ...(window.__tmuxMobileDebugSockets ?? {}),
+        control: socket
+      };
+    }
   };
+
+  const scheduleReconnect = (options: {
+    immediate?: boolean;
+    closeCode?: number;
+    generation: number;
+  }): void => {
+    if (
+      !shouldReconnect({
+        closeCode: options.closeCode,
+        socketGeneration: options.generation,
+        currentGeneration: socketGenerationRef.current,
+        unmounted: unmountedRef.current,
+        needsPassword: needsPasswordRef.current,
+        hasToken: Boolean(token)
+      })
+    ) {
+      return;
+    }
+
+    if (options.immediate) {
+      const connecting =
+        controlSocketRef.current?.readyState === WebSocket.CONNECTING ||
+        terminalSocketRef.current?.readyState === WebSocket.CONNECTING;
+      if (
+        connecting ||
+        !socketsNeedReconnect(
+          controlSocketRef.current?.readyState,
+          terminalSocketRef.current?.readyState
+        )
+      ) {
+        return;
+      }
+    }
+
+    clearReconnectTimer();
+    setConnectionPhase("reconnecting");
+    setStatusMessage("reconnecting");
+    setErrorMessage("");
+    const delay = reconnectDelayMs(reconnectAttemptRef.current, Boolean(options.immediate));
+    const scheduledGeneration = socketGenerationRef.current;
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      if (unmountedRef.current || scheduledGeneration !== socketGenerationRef.current) {
+        return;
+      }
+      reconnectAttemptRef.current += 1;
+      debugLog("reconnect.attempt", {
+        attempt: reconnectAttemptRef.current,
+        delay,
+        immediate: Boolean(options.immediate)
+      });
+      openControlSocket(passwordRef.current);
+    }, delay);
+  };
+  scheduleReconnectRef.current = scheduleReconnect;
 
   useEffect(() => {
     if (!token) {
@@ -544,8 +654,35 @@ export const App = () => {
 
   useEffect(() => {
     return () => {
+      unmountedRef.current = true;
+      socketGenerationRef.current += 1;
+      clearReconnectTimer();
       controlSocketRef.current?.close();
       terminalSocketRef.current?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const maybeReconnect = (): void => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      if (!hadConnectedRef.current) {
+        return;
+      }
+      scheduleReconnectRef.current({
+        immediate: true,
+        generation: socketGenerationRef.current
+      });
+    };
+
+    document.addEventListener("visibilitychange", maybeReconnect);
+    window.addEventListener("online", maybeReconnect);
+    window.addEventListener("pageshow", maybeReconnect);
+    return () => {
+      document.removeEventListener("visibilitychange", maybeReconnect);
+      window.removeEventListener("online", maybeReconnect);
+      window.removeEventListener("pageshow", maybeReconnect);
     };
   }, []);
 
@@ -996,6 +1133,14 @@ export const App = () => {
               </p>
             )}
             <button onClick={submitPassword}>Connect</button>
+          </div>
+        </div>
+      )}
+
+      {token && !needsPasswordInput && connectionPhase !== "connected" && (
+        <div className="overlay" data-testid="reconnect-overlay">
+          <div className="card">
+            <h2>{connectionPhase === "reconnecting" ? "Reconnecting…" : "Connecting…"}</h2>
           </div>
         </div>
       )}
