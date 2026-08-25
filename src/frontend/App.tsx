@@ -96,6 +96,7 @@ export const App = () => {
   const needsPasswordRef = useRef(false);
   const unmountedRef = useRef(false);
   const hadConnectedRef = useRef(false);
+  const terminalKeyboardEnabledRef = useRef(false);
   const authFailedRef = useRef(false);
   const socketGenerationRef = useRef(0);
   const reconnectAttemptRef = useRef(0);
@@ -623,7 +624,22 @@ export const App = () => {
     terminal.open(terminalContainerRef.current);
     requestAnimationFrame(() => {
       fitAddon.fit();
-      terminal.focus();
+      const textarea = terminalContainerRef.current?.querySelector("textarea");
+      if (textarea && window.matchMedia("(pointer: coarse)").matches) {
+        terminalKeyboardEnabledRef.current = false;
+        textarea.inputMode = "none";
+        textarea.readOnly = true;
+        textarea.blur();
+        textarea.addEventListener("focus", () => {
+          if (!terminalKeyboardEnabledRef.current) {
+            textarea.inputMode = "none";
+            textarea.readOnly = true;
+            textarea.blur();
+          }
+        });
+      } else {
+        terminal.focus();
+      }
     });
 
     const disposable = terminal.onData((data) => {
@@ -760,6 +776,40 @@ export const App = () => {
     terminalRef.current?.focus();
   };
 
+  const terminalTextarea = (): HTMLTextAreaElement | null => {
+    return terminalContainerRef.current?.querySelector("textarea") ?? null;
+  };
+
+  const hideTerminalKeyboard = (): void => {
+    terminalKeyboardEnabledRef.current = false;
+    const textarea = terminalTextarea();
+    if (!textarea) {
+      return;
+    }
+    textarea.inputMode = "none";
+    textarea.readOnly = true;
+    textarea.blur();
+  };
+
+  const showTerminalKeyboard = (): void => {
+    terminalKeyboardEnabledRef.current = true;
+    const textarea = terminalTextarea();
+    if (!textarea) {
+      return;
+    }
+    textarea.readOnly = false;
+    textarea.inputMode = "text";
+    textarea.focus();
+  };
+
+  const onToolbarMouseUp = (): void => {
+    if (window.matchMedia("(pointer: coarse)").matches) {
+      hideTerminalKeyboard();
+      return;
+    }
+    focusTerminal();
+  };
+
   const selectWindow = (windowState: TmuxWindowState): void => {
     if (!activeSession) {
       return;
@@ -808,6 +858,15 @@ export const App = () => {
           <button className="top-btn" onClick={() => setComposeEnabled((value) => !value)}>
             {composeEnabled ? "Compose On" : "Compose Off"}
           </button>
+          {!composeEnabled && (
+            <button
+              className="top-btn"
+              data-testid="keyboard-toggle"
+              onClick={showTerminalKeyboard}
+            >
+              KB
+            </button>
+          )}
         </div>
       </header>
 
@@ -820,7 +879,7 @@ export const App = () => {
         />
       </main>
 
-      <section className="toolbar" onMouseUp={focusTerminal}>
+      <section className="toolbar" onMouseUp={onToolbarMouseUp}>
         {/* Row 1: Esc, Ctrl, Alt, Cmd, Meta, /, @, Hm, ↑, Ed */}
         <div className="toolbar-main">
           <button onClick={() => sendTerminal("\u001b")}>Esc</button>
@@ -913,9 +972,19 @@ export const App = () => {
                 setComposeText("");
               }
             }}
+            onFocus={hideTerminalKeyboard}
             placeholder="Compose command"
+            inputMode="text"
+            enterKeyHint="send"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
+          <button type="button" data-testid="keyboard-toggle" onClick={showTerminalKeyboard}>
+            KB
+          </button>
           <button
+            type="button"
             onClick={() => {
               sendControl({ type: "send_compose", text: composeText });
               setComposeText("");
