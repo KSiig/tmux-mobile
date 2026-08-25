@@ -33,6 +33,7 @@ let paneCounter = 20;
 interface FakeTmuxOptions {
   attachedSession?: string;
   failSwitchClient?: boolean;
+  mouseEnabled?: boolean;
 }
 
 const buildDefaultSession = (name: string): SessionNode => ({
@@ -61,11 +62,14 @@ const buildDefaultSession = (name: string): SessionNode => ({
 export class FakeTmuxGateway implements TmuxGateway {
   private sessions: SessionNode[] = [];
   private failSwitchClient = false;
+  private mouseEnabledBySession = new Map<string, boolean>();
+  private defaultMouseEnabled = false;
   public readonly calls: string[] = [];
 
   public constructor(seedSessions: string[] = [], options: FakeTmuxOptions = {}) {
     this.sessions = seedSessions.map((name) => buildDefaultSession(name));
     this.failSwitchClient = options.failSwitchClient ?? false;
+    this.defaultMouseEnabled = options.mouseEnabled ?? false;
     if (options.attachedSession) {
       this.markAttached(options.attachedSession);
     }
@@ -242,7 +246,20 @@ export class FakeTmuxGateway implements TmuxGateway {
 
   public async capturePane(paneId: string, lines: number): Promise<string> {
     this.calls.push(`capturePane:${paneId}:${lines}`);
-    return `captured ${lines} lines for ${paneId}`;
+    const generated = Array.from({ length: Math.max(lines, 1) }, (_, index) => `line-${index + 1}`);
+    generated[0] = `captured ${lines} lines for ${paneId}`;
+    generated[generated.length - 1] = `latest-line for ${paneId}`;
+    return generated.join("\n");
+  }
+
+  public async getMouse(session: string): Promise<boolean> {
+    this.calls.push(`getMouse:${session}`);
+    return this.mouseEnabledBySession.get(session) ?? this.defaultMouseEnabled;
+  }
+
+  public async setMouse(session: string, enabled: boolean): Promise<void> {
+    this.calls.push(`setMouse:${session}:${enabled}`);
+    this.mouseEnabledBySession.set(session, enabled);
   }
 
   public setFailSwitchClient(value: boolean): void {

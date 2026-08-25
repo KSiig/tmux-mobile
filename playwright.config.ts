@@ -8,6 +8,7 @@ export default defineConfig({
   use: {
     browserName: "chromium",
     headless: true,
+    ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure"

@@ -365,4 +365,40 @@ describe("tmux mobile server", () => {
     await runningServer.stop();
     await runningServer.stop();
   });
+
+  test("reports and toggles session-scoped mouse on the attached session", async () => {
+    await runningServer.stop();
+    await startWithSessions(["main"]);
+
+    const control = await openSocket(`${baseWsUrl}/ws/control`);
+    const mousePromise = waitForMessage<{ type: string; enabled: boolean }>(
+      control,
+      (msg) => msg.type === "mouse"
+    );
+    const { attachedSession } = await authControl(control);
+    const mouse = await mousePromise;
+    expect(mouse.enabled).toBe(false);
+    expect(tmux.calls).toContain(`getMouse:${attachedSession}`);
+
+    const toggled = waitForMessage<{ type: string; enabled: boolean }>(
+      control,
+      (msg) => msg.type === "mouse" && msg.enabled === true
+    );
+    control.send(JSON.stringify({ type: "set_mouse", enabled: true }));
+    await expect(toggled).resolves.toMatchObject({ type: "mouse", enabled: true });
+    expect(tmux.calls).toContain(`setMouse:${attachedSession}:true`);
+
+    control.send(
+      JSON.stringify({ type: "capture_scrollback", paneId: "%unused", lines: 10, intent: "history" })
+    );
+    const capture = await waitForMessage<{ type: string; intent?: string; text: string }>(
+      control,
+      (msg) => msg.type === "scrollback"
+    );
+    expect(capture.intent).toBe("history");
+    expect(capture.text).toContain("captured 10 lines");
+
+    control.close();
+  });
 });
+
