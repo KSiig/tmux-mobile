@@ -14,7 +14,8 @@ describe("shouldReconnect", () => {
     currentGeneration: 1,
     unmounted: false,
     needsPassword: false,
-    hasToken: true
+    hasToken: true,
+    authFailed: false
   };
 
   test("reconnects after an unexpected socket drop", () => {
@@ -39,6 +40,10 @@ describe("shouldReconnect", () => {
 
   test("does not reconnect after terminal auth failure", () => {
     expect(shouldReconnect({ ...healthy, closeCode: 4001 })).toBe(false);
+  });
+
+  test("does not reconnect on later lifecycle events after auth failed", () => {
+    expect(shouldReconnect({ ...healthy, closeCode: undefined, authFailed: true })).toBe(false);
   });
 });
 

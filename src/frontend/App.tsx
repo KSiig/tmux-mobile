@@ -96,6 +96,7 @@ export const App = () => {
   const needsPasswordRef = useRef(false);
   const unmountedRef = useRef(false);
   const hadConnectedRef = useRef(false);
+  const authFailedRef = useRef(false);
   const socketGenerationRef = useRef(0);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -113,9 +114,6 @@ export const App = () => {
   const [connectionPhase, setConnectionPhase] = useState<"connecting" | "connected" | "reconnecting">(
     "connecting"
   );
-
-  passwordRef.current = password;
-  needsPasswordRef.current = needsPasswordInput;
 
   const [snapshot, setSnapshot] = useState<TmuxStateSnapshot>({ sessions: [], capturedAt: "" });
   const [attachedSession, setAttachedSession] = useState<string>("");
@@ -349,6 +347,7 @@ export const App = () => {
     socket.onclose = (event) => {
       debugLog("terminal_socket.onclose", { code: event.code, reason: event.reason });
       if (event.code === 4001) {
+        authFailedRef.current = true;
         setErrorMessage("terminal authentication failed");
       }
       setStatusMessage("terminal disconnected");
@@ -401,6 +400,7 @@ export const App = () => {
           setPasswordErrorMessage("");
           setAuthReady(true);
           setNeedsPasswordInput(false);
+          authFailedRef.current = false;
           if (message.requiresPassword && passwordValue) {
             localStorage.setItem("tmux-mobile-password", passwordValue);
           } else {
@@ -412,6 +412,7 @@ export const App = () => {
           debugLog("control_socket.auth_error", { reason: message.reason });
           setErrorMessage(message.reason);
           setAuthReady(false);
+          authFailedRef.current = true;
           const passwordAuthFailed =
             message.reason === "invalid password" || Boolean(serverConfig?.passwordRequired);
           if (passwordAuthFailed) {
@@ -507,7 +508,8 @@ export const App = () => {
         currentGeneration: socketGenerationRef.current,
         unmounted: unmountedRef.current,
         needsPassword: needsPasswordRef.current,
-        hasToken: Boolean(token)
+        hasToken: Boolean(token),
+        authFailed: authFailedRef.current
       })
     ) {
       return;
@@ -548,7 +550,15 @@ export const App = () => {
       openControlSocket(passwordRef.current);
     }, delay);
   };
-  scheduleReconnectRef.current = scheduleReconnect;
+
+  useEffect(() => {
+    passwordRef.current = password;
+    needsPasswordRef.current = needsPasswordInput;
+  }, [password, needsPasswordInput]);
+
+  useEffect(() => {
+    scheduleReconnectRef.current = scheduleReconnect;
+  });
 
   useEffect(() => {
     if (!token) {
@@ -728,6 +738,7 @@ export const App = () => {
 
   const submitPassword = (): void => {
     setPasswordErrorMessage("");
+    authFailedRef.current = false;
     openControlSocket(password);
   };
 

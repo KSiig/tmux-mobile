@@ -8,6 +8,7 @@ export interface ReconnectDecisionInput {
   unmounted: boolean;
   needsPassword: boolean;
   hasToken: boolean;
+  authFailed: boolean;
 }
 
 export const shouldReconnect = (input: ReconnectDecisionInput): boolean => {
@@ -18,6 +19,9 @@ export const shouldReconnect = (input: ReconnectDecisionInput): boolean => {
     return false;
   }
   if (input.needsPassword) {
+    return false;
+  }
+  if (input.authFailed) {
     return false;
   }
   if (input.socketGeneration !== input.currentGeneration) {
