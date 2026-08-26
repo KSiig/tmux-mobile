@@ -25,7 +25,10 @@ export const writeFontSize = (
   storage: Pick<Storage, "setItem">,
   size: number
 ): void => {
-  const clamped = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, size));
+  const clamped = Math.min(
+    MAX_FONT_SIZE,
+    Math.max(MIN_FONT_SIZE, Math.round(size))
+  );
   storage.setItem(FONT_SIZE_KEY, String(clamped));
 };
 

@@ -88,4 +88,19 @@ describe("font size preference", () => {
     writeFontSize(storage, 7);
     expect(readFontSize(storage)).toBe(10);
   });
+
+  test("writeFontSize normalises fractional input so the stored value is readable", () => {
+    const storage = memoryStorage();
+    writeFontSize(storage, 11.5);
+    expect(storage.getItem(FONT_SIZE_KEY)).toBe("12");
+    expect(readFontSize(storage)).toBe(12);
+
+    writeFontSize(storage, 10.4);
+    expect(storage.getItem(FONT_SIZE_KEY)).toBe("10");
+    expect(readFontSize(storage)).toBe(10);
+
+    writeFontSize(storage, 13.6);
+    expect(storage.getItem(FONT_SIZE_KEY)).toBe("14");
+    expect(readFontSize(storage)).toBe(14);
+  });
 });
