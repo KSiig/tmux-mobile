@@ -35,7 +35,7 @@ test.describe("font size stepper", () => {
     await expect(page.getByTestId("font-size-value")).toHaveText("12");
   });
 
-  test("A- is clamped at 10 and A+ is clamped at 14", async ({ page }) => {
+  test("A- is clamped at 1 and A+ is clamped at 14", async ({ page }) => {
     await page.goto(`${server.baseUrl}/?token=${server.token}`);
     await expect(page.getByTestId("top-status-indicator")).toHaveClass(/ok/);
     await expect(page.getByTestId("font-size-value")).toHaveText("11");
@@ -48,10 +48,10 @@ test.describe("font size stepper", () => {
     await expect(increase).toBeDisabled();
 
     const decrease = page.getByTestId("font-size-decrease");
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 13; i++) {
       await decrease.click();
     }
-    await expect(page.getByTestId("font-size-value")).toHaveText("10");
+    await expect(page.getByTestId("font-size-value")).toHaveText("1");
     await expect(decrease).toBeDisabled();
   });
 

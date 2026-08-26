@@ -1,6 +1,6 @@
 export const FONT_SIZE_KEY = "tmux-mobile-font-size";
 
-export const MIN_FONT_SIZE = 10;
+export const MIN_FONT_SIZE = 1;
 export const MAX_FONT_SIZE = 14;
 
 export const DEFAULT_PHONE_FONT_SIZE = 11;

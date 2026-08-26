@@ -56,7 +56,7 @@ describe("font size preference", () => {
   });
 
   test("readFontSize returns null for invalid stored values", () => {
-    for (const value of ["9", "15", "foo", "", "11.5"]) {
+    for (const value of ["0", "15", "foo", "", "11.5"]) {
       expect(readFontSize(memoryStorage({ [FONT_SIZE_KEY]: value }))).toBeNull();
     }
   });
@@ -69,14 +69,16 @@ describe("font size preference", () => {
     expect(storage.getItem(FONT_SIZE_KEY)).toBe("14");
   });
 
-  test("writeFontSize clamps sizes below 10 and above 14", () => {
+  test("writeFontSize clamps sizes below 1 and above 14", () => {
     const storage = memoryStorage();
     writeFontSize(storage, 9);
-    expect(storage.getItem(FONT_SIZE_KEY)).toBe("10");
+    expect(storage.getItem(FONT_SIZE_KEY)).toBe("9");
     writeFontSize(storage, 15);
     expect(storage.getItem(FONT_SIZE_KEY)).toBe("14");
     writeFontSize(storage, 0);
-    expect(storage.getItem(FONT_SIZE_KEY)).toBe("10");
+    expect(storage.getItem(FONT_SIZE_KEY)).toBe("1");
+    writeFontSize(storage, -5);
+    expect(storage.getItem(FONT_SIZE_KEY)).toBe("1");
     writeFontSize(storage, 99);
     expect(storage.getItem(FONT_SIZE_KEY)).toBe("14");
   });
@@ -86,7 +88,9 @@ describe("font size preference", () => {
     writeFontSize(storage, 12);
     expect(readFontSize(storage)).toBe(12);
     writeFontSize(storage, 7);
-    expect(readFontSize(storage)).toBe(10);
+    expect(readFontSize(storage)).toBe(7);
+    writeFontSize(storage, -3);
+    expect(readFontSize(storage)).toBe(1);
   });
 
   test("writeFontSize normalises fractional input so the stored value is readable", () => {
