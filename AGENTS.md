@@ -84,3 +84,26 @@ See `SECURITY.md` for the full threat model, auth mechanism, and known weaknesse
 
 ### Reference: `porterminal/`
 The `porterminal/` directory is a clone of the original inspiration project (Python + TypeScript generic terminal). It's reference material only — not part of the build or tests.
+
+### Personal dev preview tunnel (per-machine)
+
+Developers on this machine can run a second tmux-mobile instance behind a Cloudflare **named** tunnel, separate from the production setup. This lets you test a feature branch on a phone before merging without touching prod.
+
+The pieces (paths live in the developer's home, not in this repo):
+
+- **systemd user service** `tmux-mobile-preview.service` — runs the preview backend on a local port (default `8768`, separate from prod's `8767`).
+- **wrapper script** `~/.local/bin/tmux-mobile-preview` — invokes `node <SRC>/dist/backend/cli.js` with `--no-tunnel` so the named tunnel can route to it instead of starting its own quick tunnel.
+- **env file** `~/.config/tmux-mobile/preview.env` — sets `TMUX_MOBILE_SRC` (the checkout or worktree to serve), `TMUX_MOBILE_PREVIEW_PORT`, and `TMUX_MOBILE_URL_FILE`. Leave `TMUX_MOBILE_TOKEN` / `TMUX_MOBILE_PASSWORD` empty to let the server regenerate them on each start.
+- **Cloudflared named tunnel** — a single cloudflared process serves both the prod hostname and the dev hostname; both are configured in the per-host `~/.cloudflared/` config and DNS. The dev hostname resolves to the preview port via the tunnel ingress rule.
+- **state file** `~/.local/state/tmux-mobile/preview.url` — written by the preview process on each start. Contains the current `local=`, `tunnel=`, and `password=` lines for the dev URL. Read this file after a restart to grab the new token and password — do **not** check the live hostnames, tokens, or passwords into git.
+
+To point the preview at a feature branch / worktree:
+
+```bash
+npm run build                                    # build the worktree you want to serve
+# edit ~/.config/tmux-mobile/preview.env and set TMUX_MOBILE_SRC to that path
+systemctl --user restart tmux-mobile-preview
+cat ~/.local/state/tmux-mobile/preview.url       # new tunnel URL + token + password
+```
+
+Keep the actual hostname, tokens, and passwords out of this file and out of commit messages — they are per-machine secrets.
