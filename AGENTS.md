@@ -84,3 +84,45 @@ See `SECURITY.md` for the full threat model, auth mechanism, and known weaknesse
 
 ### Reference: `porterminal/`
 The `porterminal/` directory is a clone of the original inspiration project (Python + TypeScript generic terminal). It's reference material only — not part of the build or tests.
+
+### Personal dev preview tunnel (per-machine)
+
+This machine runs **two** tmux-mobile instances behind a single Cloudflare **named** tunnel: a stable prod one and a swappable dev one. This lets you test a feature branch on a phone before merging without touching the prod URL.
+
+The pieces (paths live in the developer's home, not in this repo):
+
+**Prod side** — what you share with other devices / people.
+
+- **systemd user service** `tmux-mobile.service` — runs the prod backend on the default port `8767`.
+- **ExecStart** invokes the globally-installed `tmux-mobile` binary directly (no wrapper), with `--no-tunnel` and a URL file. It uses the npm-published version, not a local checkout.
+- **env file** `~/.config/tmux-mobile/prod.env` — pins a fixed `TMUX_MOBILE_TOKEN` and `TMUX_MOBILE_PASSWORD` so the URL and password stay stable across restarts. Don't change these unless you intend to invalidate every shared link.
+- **state file** `~/.local/state/tmux-mobile/prod.url` — the current prod `local=`, `tunnel=`, and `password=` lines.
+
+**Preview / dev side** — what you point at a feature branch.
+
+- **systemd user service** `tmux-mobile-preview.service` — runs the preview backend on a separate local port (default `8768`).
+- **wrapper script** `~/.local/bin/tmux-mobile-preview` — invokes `node <SRC>/dist/backend/cli.js` with `--no-tunnel` so the named tunnel can route to it instead of starting its own quick tunnel.
+- **env file** `~/.config/tmux-mobile/preview.env` — sets `TMUX_MOBILE_SRC` (the checkout or worktree to serve), `TMUX_MOBILE_PREVIEW_PORT`, and `TMUX_MOBILE_URL_FILE`. Leave `TMUX_MOBILE_TOKEN` / `TMUX_MOBILE_PASSWORD` empty to let the server regenerate them on each start (preview URLs are disposable).
+- **state file** `~/.local/state/tmux-mobile/preview.url` — written by the preview process on each start. Contains the current `local=`, `tunnel=`, and `password=` lines for the dev URL. Read this file after a restart to grab the new token and password.
+
+**Tunnel** — one cloudflared process (`cloudflared-tmux-mobile.service`) serves both hostnames. The prod and dev hostnames are configured in the per-host `~/.cloudflared/` config and DNS, and the tunnel ingress rule maps each hostname to the matching local port (`8767` for prod, `8768` for preview).
+
+**How they differ, at a glance**
+
+|                | Prod                              | Preview / dev                                |
+| -------------- | --------------------------------- | -------------------------------------------- |
+| Port           | `8767` (default)                  | `8768`                                       |
+| Source         | globally-installed `tmux-mobile`  | local checkout / worktree via `TMUX_MOBILE_SRC` |
+| Token/password | pinned in `prod.env`              | regenerated on every start (empty in `preview.env`) |
+| Restart risk   | invalidates shared links          | only affects your dev session                |
+
+To point the preview at a feature branch / worktree:
+
+```bash
+npm run build                                    # build the worktree you want to serve
+# edit ~/.config/tmux-mobile/preview.env and set TMUX_MOBILE_SRC to that path
+systemctl --user restart tmux-mobile-preview
+cat ~/.local/state/tmux-mobile/preview.url       # new tunnel URL + token + password
+```
+
+Keep the actual hostnames, tokens, and passwords out of this file and out of commit messages — they are per-machine secrets.
