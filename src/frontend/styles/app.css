@@ -381,7 +381,28 @@ input {
 .top-actions {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.font-size-stepper {
+  padding: 0.2rem 0.4rem;
+  font-weight: 600;
+  min-width: 1.8rem;
+  font-size: 0.9rem;
+}
+
+.font-size-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  padding: 0 0.2rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
 }
 
 .top-status {

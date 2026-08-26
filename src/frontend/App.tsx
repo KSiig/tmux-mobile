@@ -14,6 +14,13 @@ import {
   resolveMouseEnabled,
   writeMousePreference
 } from "./mouse-preference";
+import {
+  MAX_FONT_SIZE,
+  MIN_FONT_SIZE,
+  readFontSize,
+  resolveFontSize,
+  writeFontSize
+} from "./font-size";
 import type {
   ControlServerMessage,
   TmuxPaneState,
@@ -56,9 +63,9 @@ const wsOrigin = (() => {
   return `${scheme}://${window.location.host}`;
 })();
 
-const getPreferredTerminalFontSize = (): number => {
-  return window.matchMedia("(max-width: 768px), (pointer: coarse)").matches ? 12 : 14;
-};
+const PHONE_MEDIA_QUERY = "(max-width: 768px), (pointer: coarse)";
+
+const isPhoneViewport = (): boolean => window.matchMedia(PHONE_MEDIA_QUERY).matches;
 
 const getInitialStickyZoom = (): boolean => {
   const stored = localStorage.getItem("tmux-mobile-sticky-zoom");
@@ -140,6 +147,10 @@ export const App = () => {
   const [historyVisible, setHistoryVisible] = useState(false);
   const [historyText, setHistoryText] = useState("");
   const [mouseEnabled, setMouseEnabled] = useState(false);
+  const [fontSize, setFontSize] = useState<number>(() =>
+    resolveFontSize(readFontSize(localStorage), isPhoneViewport())
+  );
+  const fontSizeRef = useRef<number>(fontSize);
   const historyPreRef = useRef<HTMLPreElement | null>(null);
   const historyGestureRef = useRef<{ x: number; y: number } | null>(null);
   const mouseEnabledRef = useRef(false);
@@ -341,6 +352,27 @@ export const App = () => {
       setHistoryVisible(false);
     }
     sendControl({ type: "set_mouse", enabled: next });
+  };
+
+  const changeFontSize = (delta: number): void => {
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!terminal || !fitAddon) {
+      return;
+    }
+    const next = Math.min(
+      MAX_FONT_SIZE,
+      Math.max(MIN_FONT_SIZE, fontSizeRef.current + delta)
+    );
+    if (next === fontSizeRef.current) {
+      return;
+    }
+    writeFontSize(localStorage, next);
+    setFontSize(next);
+    fontSizeRef.current = next;
+    terminal.options.fontSize = next;
+    fitAddon.fit();
+    sendTerminalResize();
   };
 
   const formatPasswordError = (reason: string): string => {
@@ -682,7 +714,7 @@ export const App = () => {
       return;
     }
 
-    const initialFontSize = getPreferredTerminalFontSize();
+    const initialFontSize = fontSize;
     const themeConfig = themes[theme];
     const terminal = new Terminal({
       cursorBlink: true,
@@ -725,9 +757,11 @@ export const App = () => {
     fitAddonRef.current = fitAddon;
 
     const fitAndNotifyResize = () => {
-      const preferredFontSize = getPreferredTerminalFontSize();
-      if (terminal.options.fontSize !== preferredFontSize) {
-        terminal.options.fontSize = preferredFontSize;
+      const resolved = resolveFontSize(readFontSize(localStorage), isPhoneViewport());
+      if (terminal.options.fontSize !== resolved) {
+        terminal.options.fontSize = resolved;
+        fontSizeRef.current = resolved;
+        setFontSize(resolved);
       }
       fitAddon.fit();
       sendTerminalResize();
@@ -800,6 +834,10 @@ export const App = () => {
   useEffect(() => {
     mouseEnabledRef.current = mouseEnabled;
   }, [mouseEnabled]);
+
+  useEffect(() => {
+    fontSizeRef.current = fontSize;
+  }, [fontSize]);
 
   useEffect(() => {
     historyVisibleRef.current = historyVisible;
@@ -990,6 +1028,31 @@ export const App = () => {
           Window: {activeWindow ? `${activeWindow.index}: ${activeWindow.name}` : "-"}
         </div>
         <div className="top-actions">
+          <button
+            className="top-btn font-size-stepper"
+            data-testid="font-size-decrease"
+            aria-label="Decrease font size"
+            onClick={() => changeFontSize(-1)}
+            disabled={fontSize <= MIN_FONT_SIZE}
+          >
+            A−
+          </button>
+          <span
+            className="font-size-value"
+            data-testid="font-size-value"
+            aria-label={`Font size ${fontSize}`}
+          >
+            {fontSize}
+          </span>
+          <button
+            className="top-btn font-size-stepper"
+            data-testid="font-size-increase"
+            aria-label="Increase font size"
+            onClick={() => changeFontSize(1)}
+            disabled={fontSize >= MAX_FONT_SIZE}
+          >
+            A+
+          </button>
           <span
             className={`top-status ${topStatus.kind}`}
             title={topStatus.label}
