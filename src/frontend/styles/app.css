@@ -838,10 +838,10 @@ body[data-immersive="true"] .bottom-handle {
   left: 50%;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
   transform: translateX(-50%);
-  width: 96px;
-  height: 5px;
+  width: 64px;
+  height: 4px;
   border-radius: 4px;
-  background: rgba(180, 200, 220, 0.55);
+  background: rgba(180, 200, 220, 0.32);
   border: none;
   cursor: pointer;
   padding: 0;
@@ -849,6 +849,31 @@ body[data-immersive="true"] .bottom-handle {
 }
 
 body[data-immersive="true"] .bottom-handle:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+body[data-immersive="true"] .immersive-close {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: calc(env(safe-area-inset-left, 0px) + 8px);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e5edff;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  z-index: 40;
+}
+
+body[data-immersive="true"] .immersive-close:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 2px;
 }

@@ -72,7 +72,7 @@ test.describe("immersive mode", () => {
     }
   });
 
-  test("tapping the terminal hides chrome and reveals the bottom handle", async ({ page }) => {
+  test("tapping the terminal hides chrome and reveals the immersive controls", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.removeItem("tmux-mobile-immersive");
       localStorage.removeItem("tmux-mobile-immersive-hint-seen");
@@ -85,6 +85,7 @@ test.describe("immersive mode", () => {
     await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
     await expect(page.locator(".topbar")).toBeHidden();
     await expect(page.locator(".toolbar")).toBeHidden();
+    await expect(page.getByTestId("immersive-close")).toBeVisible();
     await expect(page.getByTestId("immersive-handle")).toBeVisible();
   });
 
@@ -177,7 +178,7 @@ test.describe("immersive mode", () => {
     await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
   });
 
-  test("swipe-up restores chrome", async ({ page }) => {
+  test("tapping the top-left close button restores chrome", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("tmux-mobile-immersive", "true");
       localStorage.setItem("tmux-mobile-immersive-hint-seen", "true");
@@ -186,15 +187,32 @@ test.describe("immersive mode", () => {
     await expect(page.getByTestId("top-status-indicator")).toHaveClass(/ok/);
     await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
 
+    const close = page.getByTestId("immersive-close");
+    await expect(close).toBeVisible();
+    await close.click();
+    await expect(page.locator("body")).toHaveAttribute("data-immersive", "false");
+    await expect(page.locator(".topbar")).toBeVisible();
+    await expect(page.locator(".toolbar")).toBeVisible();
+  });
+
+  test("no swipe-up gesture: swiping from the terminal does not exit immersive", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("tmux-mobile-immersive", "true");
+      localStorage.setItem("tmux-mobile-immersive-hint-seen", "true");
+    });
+    await page.goto(`${server.baseUrl}/?token=${server.token}`);
+    await expect(page.getByTestId("top-status-indicator")).toHaveClass(/ok/);
+    await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
+
+    // Synthesize an upward swipe on the terminal area. The spec's swipe-up
+    // gesture was intentionally removed in favor of an explicit close
+    // button, so this gesture MUST NOT change immersive state.
     const target = page.getByTestId("terminal-host");
     const box = await target.boundingBox();
     expect(box).not.toBeNull();
     const startX = (box?.x ?? 0) + (box?.width ?? 0) / 2;
     const startY = (box?.y ?? 0) + (box?.height ?? 0) - 80;
-    const endY = startY - 60;
-    await page.touchscreen.tap(startX, startY);
-    // Synthesize a touch sequence via CDP since playwright's tap() does
-    // not produce a swipe gesture by itself.
+    const endY = startY - 80;
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Input.dispatchTouchEvent", {
       type: "touchStart",
@@ -209,7 +227,8 @@ test.describe("immersive mode", () => {
       touchPoints: []
     });
 
-    await expect(page.locator("body")).toHaveAttribute("data-immersive", "false");
+    await page.waitForTimeout(300);
+    await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
   });
 
   test("two taps on a visible terminal only resize once", async ({ page }) => {
@@ -238,7 +257,7 @@ test.describe("immersive mode", () => {
       .toBe(resizesBefore + 1);
   });
 
-  test("pressing Space on the focused handle restores chrome", async ({ page }) => {
+  test("pressing Space on the focused close button restores chrome", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("tmux-mobile-immersive", "true");
       localStorage.setItem("tmux-mobile-immersive-hint-seen", "true");
@@ -247,6 +266,23 @@ test.describe("immersive mode", () => {
     await expect(page.getByTestId("top-status-indicator")).toHaveClass(/ok/);
     await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
 
+    const close = page.getByTestId("immersive-close");
+    await close.focus();
+    await page.keyboard.press(" ");
+    await expect(page.locator("body")).toHaveAttribute("data-immersive", "false");
+  });
+
+  test("bottom handle is still keyboard-activatable when explicitly focused", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("tmux-mobile-immersive", "true");
+      localStorage.setItem("tmux-mobile-immersive-hint-seen", "true");
+    });
+    await page.goto(`${server.baseUrl}/?token=${server.token}`);
+    await expect(page.getByTestId("top-status-indicator")).toHaveClass(/ok/);
+    await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
+
+    // The handle is no longer the auto-focus target, but it remains a
+    // keyboard-activatable close affordance for users who tab past the ×.
     const handle = page.getByTestId("immersive-handle");
     await handle.focus();
     await page.keyboard.press(" ");

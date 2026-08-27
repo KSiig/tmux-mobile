@@ -168,8 +168,8 @@ export const App = () => {
   const immersiveInitializedRef = useRef<boolean>(false);
   const lastSentResizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const immersiveHandleRef = useRef<HTMLButtonElement | null>(null);
+  const immersiveCloseRef = useRef<HTMLButtonElement | null>(null);
   const immersiveHintRef = useRef<HTMLDivElement | null>(null);
-  const immersiveTouchRef = useRef<{ x: number; y: number; t: number } | null>(null);
   const immersiveHintTimerRef = useRef<number | null>(null);
   const historyPreRef = useRef<HTMLPreElement | null>(null);
   const historyGestureRef = useRef<{ x: number; y: number } | null>(null);
@@ -451,33 +451,6 @@ export const App = () => {
       event.stopPropagation();
       setImmersive(false);
       immersiveHandleRef.current?.focus();
-    }
-  };
-
-  const onTerminalHostTouchStart = (event: React.TouchEvent<HTMLDivElement>): void => {
-    if (!immersiveRef.current || event.touches.length !== 1) {
-      return;
-    }
-    const touch = event.touches[0];
-    immersiveTouchRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      t: window.performance.now()
-    };
-  };
-
-  const onTerminalHostTouchEnd = (event: React.TouchEvent<HTMLDivElement>): void => {
-    const start = immersiveTouchRef.current;
-    immersiveTouchRef.current = null;
-    if (!start || !immersiveRef.current || event.changedTouches.length !== 1) {
-      return;
-    }
-    const touch = event.changedTouches[0];
-    const deltaY = touch.clientY - start.y;
-    const deltaX = touch.clientX - start.x;
-    const duration = window.performance.now() - start.t;
-    if (deltaY < -40 && Math.abs(deltaX) < 30 && duration < 400) {
-      setImmersive(false);
     }
   };
 
@@ -862,8 +835,8 @@ export const App = () => {
       if (resizeTransitionRef.current) {
         sendTerminalResize();
       }
-      if (immersive && immersiveHandleRef.current) {
-        immersiveHandleRef.current.focus();
+      if (immersive && immersiveCloseRef.current) {
+        immersiveCloseRef.current.focus();
       }
     });
     // Belt-and-braces: force a second fit on a setTimeout so the layout
@@ -1307,8 +1280,6 @@ export const App = () => {
 
       <main
         className="terminal-wrap"
-        onTouchStart={onTerminalHostTouchStart}
-        onTouchEnd={onTerminalHostTouchEnd}
         onKeyDown={onTerminalHostKeyDown}
       >
         <div
@@ -1355,17 +1326,32 @@ export const App = () => {
           </button>
         </div>
         {immersive && (
-          <button
-            type="button"
-            className="bottom-handle"
-            data-testid="immersive-handle"
-            role="button"
-            aria-label="Show toolbar"
-            tabIndex={0}
-            ref={immersiveHandleRef}
-            onClick={onImmersiveHandleActivate}
-            onKeyDown={onImmersiveHandleKeyDown}
-          />
+          <>
+            <button
+              type="button"
+              className="immersive-close"
+              data-testid="immersive-close"
+              role="button"
+              aria-label="Exit immersive mode"
+              tabIndex={0}
+              ref={immersiveCloseRef}
+              onClick={onImmersiveHandleActivate}
+              onKeyDown={onImmersiveHandleKeyDown}
+            >
+              ×
+            </button>
+            <button
+              type="button"
+              className="bottom-handle"
+              data-testid="immersive-handle"
+              role="button"
+              aria-label="Show toolbar"
+              tabIndex={0}
+              ref={immersiveHandleRef}
+              onClick={onImmersiveHandleActivate}
+              onKeyDown={onImmersiveHandleKeyDown}
+            />
+          </>
         )}
       </main>
 
