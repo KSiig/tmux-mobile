@@ -796,3 +796,134 @@ button.danger {
     font-size: 0.8rem;
   }
 }
+
+/* Immersive mode: hide chrome so the terminal fills the phone.
+ * Deviation from SII-38 spec at step 3 because the actual DOM class names
+ * are `.topbar` and `.compose-bar`, not `.top-bar` and `.compose`. We use
+ * position: absolute + visibility: hidden so the chrome elements do not
+ * contribute to the grid row tracks on .app-shell; the .terminal-wrap
+ * row then absorbs the freed vertical space.
+ */
+body[data-immersive="true"] .topbar,
+body[data-immersive="true"] .toolbar,
+body[data-immersive="true"] .compose-bar {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body[data-immersive="true"] .terminal-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+body[data-immersive="true"] .app-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-immersive="true"] .terminal-host {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+body[data-immersive="true"] .bottom-handle {
+  /* The button itself is a generous transparent hit area. The visible
+   * handle is rendered as a pseudo-element so the user sees a thin pill
+   * but can comfortably tap a 24px tall target. Mirrors the iOS home-
+   * indicator pattern. */
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
+  transform: translateX(-50%);
+  width: 96px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  z-index: 30;
+}
+
+body[data-immersive="true"] .bottom-handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(180, 200, 220, 0.32);
+}
+
+body[data-immersive="true"] .bottom-handle:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+body[data-immersive="true"] .immersive-close {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: calc(env(safe-area-inset-left, 0px) + 8px);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e5edff;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  z-index: 40;
+}
+
+body[data-immersive="true"] .immersive-close:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.first-run-hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 80px);
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e5edff;
+  font-size: 0.85rem;
+  max-width: calc(100vw - 32px);
+  z-index: 100;
+  pointer-events: auto;
+}
+
+.first-run-hint[data-visible="true"] {
+  display: flex;
+}
+
+.first-run-hint-text {
+  white-space: normal;
+}
+
+.first-run-hint-dismiss {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}

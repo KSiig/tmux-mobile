@@ -21,6 +21,14 @@ import {
   resolveFontSize,
   writeFontSize
 } from "./font-size";
+import {
+  isPhoneMatch,
+  readHintSeen,
+  readImmersive,
+  resolveImmersive,
+  writeHintSeen,
+  writeImmersive
+} from "./immersive-mode";
 import type {
   ControlServerMessage,
   TmuxPaneState,
@@ -108,6 +116,8 @@ export const App = () => {
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const resizeTransitionRef = useRef<boolean>(false);
   const controlSocketRef = useRef<WebSocket | null>(null);
   const terminalSocketRef = useRef<WebSocket | null>(null);
   const passwordRef = useRef("");
@@ -151,6 +161,16 @@ export const App = () => {
     resolveFontSize(readFontSize(localStorage), isPhoneViewport())
   );
   const fontSizeRef = useRef<number>(fontSize);
+  const [immersive, setImmersiveState] = useState<boolean>(() =>
+    resolveImmersive(readImmersive(localStorage), isPhoneViewport())
+  );
+  const immersiveRef = useRef<boolean>(immersive);
+  const immersiveInitializedRef = useRef<boolean>(false);
+  const lastSentResizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const immersiveHandleRef = useRef<HTMLButtonElement | null>(null);
+  const immersiveCloseRef = useRef<HTMLButtonElement | null>(null);
+  const immersiveHintRef = useRef<HTMLDivElement | null>(null);
+  const immersiveHintTimerRef = useRef<number | null>(null);
   const historyPreRef = useRef<HTMLPreElement | null>(null);
   const historyGestureRef = useRef<{ x: number; y: number } | null>(null);
   const mouseEnabledRef = useRef(false);
@@ -282,6 +302,11 @@ export const App = () => {
       });
       return;
     }
+    const last = lastSentResizeRef.current;
+    if (last && last.cols === terminal.cols && last.rows === terminal.rows) {
+      debugLog("send_terminal_resize.deduped", { cols: terminal.cols, rows: terminal.rows });
+      return;
+    }
     debugLog("send_terminal_resize", { cols: terminal.cols, rows: terminal.rows });
     socket.send(
       JSON.stringify({
@@ -290,6 +315,7 @@ export const App = () => {
         rows: terminal.rows
       })
     );
+    lastSentResizeRef.current = { cols: terminal.cols, rows: terminal.rows };
   };
 
   const toggleModifier = (key: ModifierKey): void => {
@@ -373,6 +399,79 @@ export const App = () => {
     terminal.options.fontSize = next;
     fitAddon.fit();
     sendTerminalResize();
+  };
+
+  const setImmersive = (next: boolean): void => {
+    if (immersiveRef.current === next) {
+      return;
+    }
+    // Suppress PTY resize messages emitted from the existing ResizeObserver
+    // callback while the chrome-driven layout change is settling. The
+    // explicit rAF refit inside the immersive effect owns the single
+    // resize message for this transition. Clear the flag once the layout
+    // has settled so subsequent genuine resizes (orientation, viewport)
+    // continue to flow through.
+    debugLog("setImmersive", { next });
+    resizeTransitionRef.current = true;
+    let cleared = false;
+    const clearFlag = (): void => {
+      if (cleared) {
+        return;
+      }
+      cleared = true;
+      resizeTransitionRef.current = false;
+      debugLog("setImmersive.clearedTransition");
+    };
+    // Clear after a generous window so the existing ResizeObserver does
+    // not fire duplicate resize messages for the in-flight layout change.
+    // Genuine viewport/orientation resizes that arrive while the flag is
+    // set are deferred -- the xterm on-screen size will be re-fitted on
+    // the next genuine window resize.
+    window.setTimeout(clearFlag, 1000);
+    setImmersiveState(next);
+  };
+
+  const onTerminalHostPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const target = event.target as HTMLElement | null;
+    // Exclude taps that landed on the xterm synthetic input textarea so
+    // they do not both hide chrome and type a character.
+    const targetIsHelperTextarea =
+      target?.classList.contains("xterm-helper-textarea") ?? false;
+    if (targetIsHelperTextarea) {
+      return;
+    }
+    event.stopPropagation();
+    if (!immersiveRef.current) {
+      setImmersive(true);
+    }
+  };
+
+  const onTerminalHostKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Escape" && immersiveRef.current) {
+      event.stopPropagation();
+      setImmersive(false);
+      immersiveHandleRef.current?.focus();
+    }
+  };
+
+  const onImmersiveHandleActivate = (): void => setImmersive(false);
+
+  const onImmersiveHandleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      setImmersive(false);
+    }
+  };
+
+  const onImmersiveHintDismiss = (): void => {
+    writeHintSeen(localStorage, true);
+    if (immersiveHintRef.current) {
+      immersiveHintRef.current.dataset.visible = "false";
+    }
+    if (immersiveHintTimerRef.current !== null) {
+      window.clearTimeout(immersiveHintTimerRef.current);
+      immersiveHintTimerRef.current = null;
+    }
   };
 
   const formatPasswordError = (reason: string): string => {
@@ -709,6 +808,79 @@ export const App = () => {
     }
   }, [theme]);
 
+  // Immersive mode: mirror state to <body data-immersive>, persist to
+  // localStorage, and refit xterm + notify the PTY through one rAF so the
+  // CSS-driven layout has flushed before FitAddon measures.
+  useEffect(() => {
+    document.body.dataset.immersive = immersive ? "true" : "false";
+    // Skip the persist call on the very first run when the storage slot
+    // was empty; the hint effect needs to see readImmersive() === null so
+    // it can render the first-run hint on a fresh phone.
+    if (immersiveInitializedRef.current || readImmersive(localStorage) !== null) {
+      writeImmersive(localStorage, immersive);
+    }
+    immersiveInitializedRef.current = true;
+    immersiveRef.current = immersive;
+    // The ResizeObserver on terminal-host fires whenever the chrome
+    // collapses/expands and sends one resize message. Avoid a second one
+    // here unless the renderer dimensions actually changed since the last
+    // send so that exactly one PTY resize is emitted per transition.
+    const lastCols = terminalRef.current?.cols ?? null;
+    const lastRows = terminalRef.current?.rows ?? null;
+    requestAnimationFrame(() => {
+      fitAddonRef.current?.fit();
+      // The ResizeObserver-driven fitAndNotifyResize is suppressed while
+      // resizeTransitionRef is true, so this rAF owns the transition's PTY
+      // resize message. setImmersive controls the flag's lifetime. We
+      // intentionally do NOT steal focus here: the user just typed into
+      // the terminal helper, and moving focus to the × would mean their
+      // next keystroke exits immersive instead of reaching the terminal.
+      // The × and the handle remain Tab-reachable for keyboard users.
+      if (resizeTransitionRef.current) {
+        sendTerminalResize();
+      }
+    });
+    // Belt-and-braces: force a second fit on a setTimeout so the layout
+    // has fully settled before FitAddon measures, in case the rAF fired
+    // before the chrome-driven height change had been committed.
+    window.setTimeout(() => {
+      fitAddonRef.current?.fit();
+    }, 60);
+  }, [immersive]);
+
+  // First-run hint: show once on a phone when immersive has never been
+  // chosen and the user has not dismissed the hint.
+  useEffect(() => {
+    const mql = window.matchMedia(PHONE_MEDIA_QUERY);
+    const phone = isPhoneMatch(mql);
+    const hintEl = immersiveHintRef.current;
+    if (!hintEl) {
+      return;
+    }
+    const hide = (): void => {
+      hintEl.dataset.visible = "false";
+      if (immersiveHintTimerRef.current !== null) {
+        window.clearTimeout(immersiveHintTimerRef.current);
+        immersiveHintTimerRef.current = null;
+      }
+    };
+    if (!phone || readImmersive(localStorage) !== null || readHintSeen(localStorage) === true) {
+      hide();
+      return;
+    }
+    hintEl.dataset.visible = "true";
+    immersiveHintTimerRef.current = window.setTimeout(() => {
+      writeHintSeen(localStorage, true);
+      hide();
+    }, 4000);
+    return () => {
+      if (immersiveHintTimerRef.current !== null) {
+        window.clearTimeout(immersiveHintTimerRef.current);
+        immersiveHintTimerRef.current = null;
+      }
+    };
+  }, [immersive]);
+
   useEffect(() => {
     if (!terminalContainerRef.current || terminalRef.current) {
       return;
@@ -764,6 +936,14 @@ export const App = () => {
         setFontSize(resolved);
       }
       fitAddon.fit();
+      // Skip the PTY send while an immersive transition is in flight so
+      // the explicit rAF refit owns this transition's resize message. The
+      // flag is cleared by the immersive effect on the next frame after
+      // the chrome layout has settled (see setImmersive).
+      if (resizeTransitionRef.current) {
+        debugLog("fitAndNotifyResize.suppressedByTransition");
+        return;
+      }
       sendTerminalResize();
     };
 
@@ -776,10 +956,12 @@ export const App = () => {
       fitAndNotifyResize();
     });
     resizeObserver.observe(terminalContainerRef.current);
+    resizeObserverRef.current = resizeObserver;
 
     return () => {
       window.removeEventListener("resize", onResize);
       resizeObserver.disconnect();
+      resizeObserverRef.current = null;
       disposable.dispose();
       terminal.dispose();
       terminalRef.current = null;
@@ -1097,12 +1279,16 @@ export const App = () => {
         </div>
       </header>
 
-      <main className="terminal-wrap">
+      <main
+        className="terminal-wrap"
+        onKeyDown={onTerminalHostKeyDown}
+      >
         <div
           className={`terminal-host${mouseEnabled ? " mouse-on" : " mouse-off"}`}
           ref={terminalContainerRef}
           data-testid="terminal-host"
           onContextMenu={(event) => event.preventDefault()}
+          onPointerDown={onTerminalHostPointerDown}
         />
         {historyVisible && (
           <div
@@ -1118,6 +1304,55 @@ export const App = () => {
               {historyText}
             </pre>
           </div>
+        )}
+        <div
+          className="first-run-hint"
+          data-testid="immersive-hint"
+          role="status"
+          aria-live="polite"
+          ref={immersiveHintRef}
+          data-visible="false"
+        >
+          <span className="first-run-hint-text">
+            Tip — Tap the terminal to hide the toolbar. Swipe up to bring it back.
+          </span>
+          <button
+            type="button"
+            className="first-run-hint-dismiss"
+            data-testid="immersive-hint-dismiss"
+            aria-label="Dismiss immersive hint"
+            onClick={onImmersiveHintDismiss}
+          >
+            ×
+          </button>
+        </div>
+        {immersive && (
+          <>
+            <button
+              type="button"
+              className="immersive-close"
+              data-testid="immersive-close"
+              role="button"
+              aria-label="Exit immersive mode"
+              tabIndex={0}
+              ref={immersiveCloseRef}
+              onClick={onImmersiveHandleActivate}
+              onKeyDown={onImmersiveHandleKeyDown}
+            >
+              ×
+            </button>
+            <button
+              type="button"
+              className="bottom-handle"
+              data-testid="immersive-handle"
+              role="button"
+              aria-label="Show toolbar"
+              tabIndex={0}
+              ref={immersiveHandleRef}
+              onClick={onImmersiveHandleActivate}
+              onKeyDown={onImmersiveHandleKeyDown}
+            />
+          </>
         )}
       </main>
 
