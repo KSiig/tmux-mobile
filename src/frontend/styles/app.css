@@ -834,18 +834,32 @@ body[data-immersive="true"] .terminal-host {
 }
 
 body[data-immersive="true"] .bottom-handle {
+  /* The button itself is a generous transparent hit area. The visible
+   * handle is rendered as a pseudo-element so the user sees a thin pill
+   * but can comfortably tap a 24px tall target. Mirrors the iOS home-
+   * indicator pattern. */
   position: fixed;
   left: 50%;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
   transform: translateX(-50%);
-  width: 64px;
-  height: 4px;
-  border-radius: 4px;
-  background: rgba(180, 200, 220, 0.32);
+  width: 96px;
+  height: 24px;
+  background: transparent;
   border: none;
   cursor: pointer;
   padding: 0;
   z-index: 30;
+}
+
+body[data-immersive="true"] .bottom-handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(180, 200, 220, 0.32);
 }
 
 body[data-immersive="true"] .bottom-handle:focus-visible {

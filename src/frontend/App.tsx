@@ -831,12 +831,13 @@ export const App = () => {
       fitAddonRef.current?.fit();
       // The ResizeObserver-driven fitAndNotifyResize is suppressed while
       // resizeTransitionRef is true, so this rAF owns the transition's PTY
-      // resize message. setImmersive controls the flag's lifetime.
+      // resize message. setImmersive controls the flag's lifetime. We
+      // intentionally do NOT steal focus here: the user just typed into
+      // the terminal helper, and moving focus to the × would mean their
+      // next keystroke exits immersive instead of reaching the terminal.
+      // The × and the handle remain Tab-reachable for keyboard users.
       if (resizeTransitionRef.current) {
         sendTerminalResize();
-      }
-      if (immersive && immersiveCloseRef.current) {
-        immersiveCloseRef.current.focus();
       }
     });
     // Belt-and-braces: force a second fit on a setTimeout so the layout

@@ -288,4 +288,30 @@ test.describe("immersive mode", () => {
     await page.keyboard.press(" ");
     await expect(page.locator("body")).toHaveAttribute("data-immersive", "false");
   });
+
+  test("entering immersive does not move focus to the close button", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.removeItem("tmux-mobile-immersive");
+      localStorage.setItem("tmux-mobile-immersive-hint-seen", "true");
+    });
+    await page.goto(`${server.baseUrl}/?token=${server.token}`);
+    await expect(page.getByTestId("top-status-indicator")).toHaveClass(/ok/);
+    await expect(page.locator("body")).toHaveAttribute("data-immersive", "false");
+
+    await page.getByTestId("terminal-host").click();
+    await expect(page.locator("body")).toHaveAttribute("data-immersive", "true");
+
+    // Focus MUST NOT land on the × close button after the transition.
+    // Stealing focus here meant the user's next keystroke exited immersive
+    // instead of reaching the terminal. The × remains reachable via Tab.
+    const activeOnClose = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") === "immersive-close"
+    );
+    expect(activeOnClose).toBe(false);
+
+    const activeOnHandle = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") === "immersive-handle"
+    );
+    expect(activeOnHandle).toBe(false);
+  });
 });
