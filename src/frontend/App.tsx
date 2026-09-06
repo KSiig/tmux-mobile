@@ -10,6 +10,12 @@ import {
 } from "./history-gesture";
 import { attachTerminalGestures, cellFromPoint, encodeSgrWheel } from "./terminal-gestures";
 import {
+  applyModifiers as applyModifiersPure,
+  clearStickyModifiers as clearStickyModifiersPure,
+  type ModifierKey,
+  type ModifierMode
+} from "./modifiers";
+import {
   readMousePreference,
   resolveMouseEnabled,
   writeMousePreference
@@ -44,8 +50,6 @@ interface ServerConfig {
   pollIntervalMs: number;
 }
 
-type ModifierKey = "ctrl" | "alt" | "shift" | "meta";
-type ModifierMode = "off" | "sticky" | "locked";
 
 declare global {
   interface Window {
@@ -250,30 +254,14 @@ export const App = () => {
   };
 
   const clearStickyModifiers = (): void => {
-    setModifiers((previous) => ({
-      ctrl: previous.ctrl === "sticky" ? "off" : previous.ctrl,
-      alt: previous.alt === "sticky" ? "off" : previous.alt,
-      shift: previous.shift === "sticky" ? "off" : previous.shift,
-      meta: previous.meta === "sticky" ? "off" : previous.meta
-    }));
+    setModifiers((previous) => clearStickyModifiersPure(previous));
   };
 
   const applyModifiers = (input: string): string => {
-    let output = input;
-
-    if (modifiers.shift !== "off" && output.length === 1 && /^[a-z]$/.test(output)) {
-      output = output.toUpperCase();
+    const { output, consumedSticky } = applyModifiersPure(modifiers, input);
+    if (consumedSticky) {
+      clearStickyModifiers();
     }
-
-    if (modifiers.ctrl !== "off" && output.length === 1) {
-      output = String.fromCharCode(output.toUpperCase().charCodeAt(0) & 31);
-    }
-
-    if (modifiers.alt !== "off" || modifiers.meta !== "off") {
-      output = `\u001b${output}`;
-    }
-
-    clearStickyModifiers();
     return output;
   };
 
