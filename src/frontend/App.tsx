@@ -265,6 +265,17 @@ export const App = () => {
     return output;
   };
 
+  // xterm.js's `onData` subscription lives for the entire component lifetime.
+  // The subscription is registered inside a useEffect with empty deps so it
+  // captures the initial-render `sendTerminal` closure, which in turn captures
+  // the initial `modifiers` state. Route every call through these refs so the
+  // subscription always sees the latest closure (and therefore the latest
+  // active modifier toggles).
+  const sendTerminalRef = useRef<(input: string, withModifiers?: boolean) => void>(
+    () => {}
+  );
+  const sendTerminalResizeRef = useRef<() => void>(() => {});
+
   const sendTerminal = (input: string, withModifiers = true): void => {
     const socket = terminalSocketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -305,6 +316,11 @@ export const App = () => {
     );
     lastSentResizeRef.current = { cols: terminal.cols, rows: terminal.rows };
   };
+
+  // Keep the refs pointing at the latest closures so the xterm subscription
+  // (registered once on mount) can route through the current state.
+  sendTerminalRef.current = sendTerminal;
+  sendTerminalResizeRef.current = sendTerminalResize;
 
   const toggleModifier = (key: ModifierKey): void => {
     const now = Date.now();
@@ -910,7 +926,7 @@ export const App = () => {
     });
 
     const disposable = terminal.onData((data) => {
-      sendTerminal(data);
+      sendTerminalRef.current(data);
     });
 
     terminalRef.current = terminal;
@@ -932,7 +948,7 @@ export const App = () => {
         debugLog("fitAndNotifyResize.suppressedByTransition");
         return;
       }
-      sendTerminalResize();
+      sendTerminalResizeRef.current();
     };
 
     const onResize = () => {
