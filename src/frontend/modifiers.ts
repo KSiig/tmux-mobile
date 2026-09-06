@@ -54,7 +54,16 @@ export const applyModifiers = (
     consumedSticky = true;
   }
 
-  if (input.length >= 1 && (modifiers.alt !== "off" || modifiers.meta !== "off")) {
+  // Alt/Meta only prefix ESC for inputs that look like a real keypress.
+  // Empty input and the CSI focus/blur events ("\u001b[I" / "\u001b[O") that
+  // xterm.js emits when DEC 1004 is enabled must not consume the sticky
+  // modifier or get an extra ESC prepended.
+  const isImeConnectionEvent = input === "\u001b[I" || input === "\u001b[O";
+  if (
+    input.length >= 1 &&
+    !isImeConnectionEvent &&
+    (modifiers.alt !== "off" || modifiers.meta !== "off")
+  ) {
     output = `\u001b${output}`;
     consumedSticky = true;
   }

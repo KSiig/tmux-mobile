@@ -35,10 +35,14 @@ describe("applyModifiers", () => {
     }
   });
 
-  test("IME noise (focus/blur event bytes) never consumes Ctrl or Shift sticky", () => {
+  test("IME noise (focus/blur event bytes) never consumes sticky for any modifier", () => {
+    // xterm.js emits "\u001b[I" and "\u001b[O" via coreService.triggerDataEvent
+    // when DEC 1004 (sendFocus) is enabled. These must never consume the
+    // sticky modifier, and Alt/Meta must not double-prefix them with another
+    // ESC byte.
     const focusEvent = "\u001b[I";
     const blurEvent = "\u001b[O";
-    for (const key of ["ctrl", "shift"] as const) {
+    for (const key of MODIFIER_KEYS) {
       for (const noise of [focusEvent, blurEvent]) {
         const result = applyModifiers(withMode("sticky", [key]), noise);
         expect(result.output).toBe(noise);
