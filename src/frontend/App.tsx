@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { themes } from "./themes";
@@ -318,9 +318,13 @@ export const App = () => {
   };
 
   // Keep the refs pointing at the latest closures so the xterm subscription
-  // (registered once on mount) can route through the current state.
-  sendTerminalRef.current = sendTerminal;
-  sendTerminalResizeRef.current = sendTerminalResize;
+  // (registered once on mount) can route through the current state. Done in
+  // a useLayoutEffect (not inline during render) so that an interrupted
+  // render in React's concurrent mode cannot leak an uncommitted closure.
+  useLayoutEffect(() => {
+    sendTerminalRef.current = sendTerminal;
+    sendTerminalResizeRef.current = sendTerminalResize;
+  });
 
   const toggleModifier = (key: ModifierKey): void => {
     const now = Date.now();
